@@ -14,7 +14,6 @@ const firebaseConfig = {
 };
 
 // 初始化 Firebase
-// 注意：如果您的環境變數還沒設定好，這行可能會報錯，請先填入上方的 config
 let db;
 try {
   const app = initializeApp(firebaseConfig);
@@ -86,21 +85,18 @@ const App = () => {
   // --- 2. 初始化與監聽 Firebase 資料 ---
   useEffect(() => {
     if (!db) {
-      // 如果沒有 Firebase Config，就 fallback 到本地資料，避免白畫面
       console.log("No Firebase config, using local defaults.");
-      initializeTables(true); // true = local mode
+      initializeTables(true);
       setLoading(false);
       return;
     }
 
-    // 監聽 Firestore 資料變化 (Real-time)
     const unsub = onSnapshot(doc(db, "seating_chart", DOC_ID), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setMembers(data.members || INITIAL_MEMBERS);
         setTables(data.tables || []);
       } else {
-        // 如果資料庫是空的，初始化預設值
         console.log("Creating new DB entry...");
         initializeTables(false); 
       }
@@ -114,9 +110,8 @@ const App = () => {
     return () => unsub();
   }, []);
 
-  // --- 3. 儲存資料到 Firebase ---
   const saveDataToFirebase = async (newMembers, newTables) => {
-    if (!db) return; // 沒有 DB 就跳過
+    if (!db) return;
     setSaving(true);
     try {
       await setDoc(doc(db, "seating_chart", DOC_ID), {
@@ -132,7 +127,6 @@ const App = () => {
     }
   };
 
-  // 初始化桌次
   const initializeTables = (isLocal = false) => {
     const newTables = [];
     for (let i = 1; i <= DEFAULT_REGULAR_TABLES; i++) {
@@ -149,15 +143,10 @@ const App = () => {
       type: 'vegetarian',
       seats: Array(SEATS_PER_TABLE).fill(null)
     });
-    
     setTables(newTables);
-    if (!isLocal) {
-       saveDataToFirebase(members, newTables);
-    }
+    if (!isLocal) saveDataToFirebase(members, newTables);
   };
 
-  // --- 通用更新函式 (取代原本的 setState) ---
-  // 這個函式會同時更新本地 State 和 Firebase
   const updateData = (newMembers, newTables) => {
     setMembers(newMembers);
     setTables(newTables);
@@ -169,24 +158,17 @@ const App = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- 邏輯功能 (已修改為使用 updateData) ---
-
   const handleSeatClick = (tableIndex, seatIndex) => {
     const currentOccupant = tables[tableIndex].seats[seatIndex];
-
     if (selectedMember && !currentOccupant) {
       const isAlreadySeated = tables.some(t => t.seats.some(s => s && s.id === selectedMember.id));
       if (isAlreadySeated) {
          if (!window.confirm(`${selectedMember.name} 已經在其他座位了，確定要換到這裡嗎？`)) return;
       }
-      
-      // 1. 先清除該成員原本的座位
       const tablesAfterRemoval = tables.map(t => ({
         ...t,
         seats: t.seats.map(s => (s && s.id === selectedMember.id) ? null : s)
       }));
-      
-      // 2. 在新位置入座
       const finalTables = tablesAfterRemoval.map((t, idx) => {
         if (idx === tableIndex) {
            const newSeats = [...t.seats];
@@ -195,11 +177,9 @@ const App = () => {
         }
         return t;
       });
-      
       updateData(members, finalTables);
       setSelectedMember(null);
       showNotification(`${selectedMember.name} 入座`);
-      
     } else if (currentOccupant) {
       promptDelete(tableIndex, seatIndex, currentOccupant.name);
     }
@@ -208,7 +188,6 @@ const App = () => {
   const confirmDelete = () => {
     if (!deleteTarget) return;
     const { tableIndex, seatIndex, memberName } = deleteTarget;
-
     const newTables = tables.map((table, tIdx) => {
       if (tIdx === tableIndex) {
         const newSeats = [...table.seats];
@@ -217,14 +196,12 @@ const App = () => {
       }
       return table;
     });
-
     updateData(members, newTables);
     showNotification(`已移除 ${memberName}`);
     setDeleteTarget(null);
   };
 
   const performReset = () => {
-    // 重新產生初始狀態
     const newTables = [];
     for (let i = 1; i <= DEFAULT_REGULAR_TABLES; i++) {
       newTables.push({
@@ -240,9 +217,6 @@ const App = () => {
       type: 'vegetarian',
       seats: Array(SEATS_PER_TABLE).fill(null)
     });
-
-    // 名單如果是從 DB 讀的，Reset 時應該保留現在的 members，只清空 tables
-    // 或者是您想要重置回 INITIAL_MEMBERS? 通常是保留現有名單比較合理
     updateData(members, newTables);
     setShowResetConfirm(false);
     showNotification('座位已重置');
@@ -251,30 +225,17 @@ const App = () => {
   const handleQuickAddSubmit = (tableIndex, tableId) => {
     const inputVal = quickAddValues[tableId]?.trim();
     if (!inputVal) return;
-
     const member = members.find(m => m.id === inputVal);
-    if (!member) {
-      showNotification(`找不到編號 ${inputVal}`, 'error');
-      return;
-    }
-
+    if (!member) { showNotification(`找不到編號 ${inputVal}`, 'error'); return; }
     const targetTable = tables[tableIndex];
     const emptySeatIndex = targetTable.seats.findIndex(s => s === null);
-    if (emptySeatIndex === -1) {
-      showNotification(`客滿了`, 'error');
-      return;
-    }
-
+    if (emptySeatIndex === -1) { showNotification(`客滿了`, 'error'); return; }
     const isAlreadySeated = tables.some(t => t.seats.some(s => s && s.id === member.id));
-    if (isAlreadySeated) {
-      if (!window.confirm(`${member.name} 已經在其他座位了，確定要換嗎？`)) return;
-    }
-
+    if (isAlreadySeated) { if (!window.confirm(`${member.name} 已經在其他座位了，確定要換嗎？`)) return; }
     const tablesAfterRemoval = tables.map(t => ({
       ...t,
       seats: t.seats.map(s => (s && s.id === member.id) ? null : s)
     }));
-    
     const finalTables = tablesAfterRemoval.map((t, idx) => {
       if (idx === tableIndex) {
         const newSeats = [...t.seats];
@@ -283,39 +244,30 @@ const App = () => {
       }
       return t;
     });
-
     updateData(members, finalTables);
     setQuickAddValues(prev => ({ ...prev, [tableId]: '' }));
     showNotification(`${member.name} 已加入`);
   };
 
-  // 匯入名單邏輯 (更新 members)
   const confirmImport = () => {
     if (parsedPreviewMembers.length === 0) return;
-    // 匯入時，如果選擇覆蓋，就更新 members
     updateData(parsedPreviewMembers, tables);
     setShowImportModal(false);
     showNotification(`匯入成功`);
   };
 
-  // 新增會員邏輯
   const handleAddMember = (e) => {
     e.preventDefault();
     if (!newMemberName.trim() || !newMemberId.trim()) return;
-    if (members.some(m => m.id === newMemberId.trim())) {
-      showNotification(`編號 ${newMemberId} 已存在`, 'error');
-      return;
-    }
+    if (members.some(m => m.id === newMemberId.trim())) { showNotification(`編號 ${newMemberId} 已存在`, 'error'); return; }
     const newMember = { id: newMemberId.trim(), name: newMemberName.trim(), isGuest: false };
     const updatedMembers = [...members, newMember].sort((a, b) => parseInt(a.id) - parseInt(b.id));
-    
     updateData(updatedMembers, tables);
     setShowAddMember(false);
     setSelectedMember(newMember);
     showNotification(`已新增：${newMember.name}`);
   };
 
-  // 增加桌子邏輯
   const addTable = () => {
     const newTables = [...tables, {
       id: `table-${Date.now()}`,
@@ -327,7 +279,6 @@ const App = () => {
     showNotification('已加開一桌');
   };
 
-  // --- 其他輔助函式保持不變 ---
   const handleQuickAddChange = (tableId, value) => setQuickAddValues(prev => ({ ...prev, [tableId]: value }));
   const promptDelete = (tableIndex, seatIndex, memberName) => setDeleteTarget({ tableIndex, seatIndex, memberName });
   const togglePrintPreview = () => setIsPrintPreviewMode(true);
@@ -420,7 +371,6 @@ const App = () => {
   if (loading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-gray-500"><Loader2 className="animate-spin w-10 h-10 text-emerald-600"/><p>正在連線至雲端資料庫...</p><p className="text-sm text-gray-400">若卡住請檢查 Firebase 設定</p></div>;
 
   if (isPrintPreviewMode) {
-    // ... (列印預覽 UI 保持不變，直接複製)
     return (
       <div className="bg-gray-100 min-h-screen">
         <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
@@ -440,25 +390,42 @@ const App = () => {
             ) : (
               tables.filter(t => t.seats.some(s => s !== null)).map((table) => (
                 <div key={table.id} className="bg-white w-full h-[297mm] shadow-xl mb-8 print:shadow-none print:mb-0 print:break-after-page flex flex-col relative overflow-hidden box-border">
+                   {/* 折線提示 */}
                    <div className="absolute top-[33.3%] left-0 w-full border-t border-dashed border-gray-300 flex items-center justify-center"><div className="bg-white px-2 text-gray-400 text-xs flex items-center gap-1"><Scissors size={10}/> 山折線 (Top Fold)</div></div>
                    <div className="absolute top-[66.6%] left-0 w-full border-t border-dashed border-gray-300 flex items-center justify-center"><div className="bg-white px-2 text-gray-400 text-xs flex items-center gap-1"><Scissors size={10}/> 山折線 (Bottom Fold)</div></div>
+                   
+                   {/* 上方：桌號 (旋轉180度) */}
                    <div className="h-[33.3%] flex flex-col justify-center items-center p-8 bg-white">
                      <div className="transform rotate-180 flex flex-col items-center">
                        <h1 className="text-[6rem] font-black leading-none text-gray-900 mb-2">{table.name}</h1>
                        {table.type === 'vegetarian' && (<div className="flex items-center justify-center gap-2 px-6 py-2 bg-green-100 text-green-800 rounded-full border-4 border-green-500 print:bg-green-100 print:text-green-800 print:border-green-500" style={{WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact'}}><Leaf size={32} /><span className="text-3xl font-bold">素食桌</span></div>)}
                      </div>
                    </div>
+
+                   {/* 中間：賓客名單 (直式 + 特大字體 + 左至右排列) */}
                    <div className="h-[33.3%] flex flex-col p-4 bg-gray-50/30 print:bg-transparent">
                      <div className="text-center mb-2"><h2 className="text-xl font-bold text-gray-500 tracking-widest border-b-2 border-gray-300 inline-block px-8 pb-1">賓客名單</h2></div>
-                     <div className="flex-1 flex flex-row justify-around items-start px-2">
+                     {/* 容器使用 flex-row 確保 1 在左，10 在右 */}
+                     <div className="flex-1 flex flex-row justify-between items-start px-4">
                        {table.seats.map((seat, idx) => (
-                         <div key={idx} className="flex flex-col items-center h-full gap-2">
-                           <span className="text-sm font-bold text-gray-400 rounded-full border border-gray-300 w-6 h-6 flex items-center justify-center mb-1">{idx + 1}</span>
-                           <div className="flex-1 text-2xl font-bold text-gray-900 tracking-[0.3em] py-2 border-l border-gray-100/50" style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{seat ? seat.name : ''}</div>
+                         <div key={idx} className="flex flex-col items-center h-full gap-2 w-[9%]">
+                           {/* 編號圓圈加大 */}
+                           <span className="text-xl font-bold text-gray-500 rounded-full border-2 border-gray-400 w-10 h-10 flex items-center justify-center mb-1 bg-white">
+                             {idx + 1}
+                           </span>
+                           {/* 名字直式書寫，特大字體 */}
+                           <div 
+                             className="flex-1 text-5xl font-black text-gray-900 tracking-[0.2em] py-2 leading-tight" 
+                             style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                           >
+                             {seat ? seat.name : ''}
+                           </div>
                          </div>
                        ))}
                      </div>
                    </div>
+
+                   {/* 下方：底座 */}
                    <div className="h-[33.3%] flex flex-col justify-end items-center p-8 text-gray-300"><div className="mb-8 text-center"><p className="text-sm tracking-widest">長青會聚餐</p><p className="text-xs mt-1">請沿虛線折疊即可站立</p></div></div>
                 </div>
               ))
@@ -474,7 +441,6 @@ const App = () => {
     <div className="flex flex-col h-screen bg-gray-50 text-gray-800 font-sans relative">
       <input type="file" ref={fileInputRef} onChange={onFileChange} accept=".csv,.txt" className="hidden" />
       
-      {/* 狀態指示燈 */}
       <div className="fixed top-0 right-0 p-1 z-[100] pointer-events-none">
          {saving ? 
            <span className="text-[10px] bg-yellow-100 text-yellow-800 px-2 py-1 rounded-bl-lg shadow flex items-center gap-1"><Loader2 size={10} className="animate-spin"/> 儲存中...</span> : 
