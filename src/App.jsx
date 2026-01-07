@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2 } from 'lucide-react';
+import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2, UserMinus, User } from 'lucide-react';
 
 // --- 1. 請在此處填入您的 Firebase 設定 (從 Firebase Console 複製) ---
 const firebaseConfig = {
@@ -22,7 +22,7 @@ try {
   console.warn("Firebase 初始化失敗，請檢查 Config", error);
 }
 
-const DOC_ID = "main_event"; // 我們將所有資料存此單一文檔中
+const DOC_ID = "main_event"; 
 
 // 預設名單
 const INITIAL_MEMBERS = [
@@ -58,9 +58,10 @@ const SEATS_PER_TABLE = 10;
 const App = () => {
   // 狀態
   const [members, setMembers] = useState(INITIAL_MEMBERS);
+  const [tempMembers, setTempMembers] = useState([]); // 新增：臨時會員狀態
   const [tables, setTables] = useState([]);
-  const [loading, setLoading] = useState(true); // 讀取狀態
-  const [saving, setSaving] = useState(false);  // 儲存狀態
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   
   // UI 狀態
   const [selectedMember, setSelectedMember] = useState(null);
@@ -69,10 +70,19 @@ const App = () => {
   const [quickAddValues, setQuickAddValues] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [deleteMemberTarget, setDeleteMemberTarget] = useState(null);
+  const [deleteTempTarget, setDeleteTempTarget] = useState(null); // 新增：臨時會員刪除確認
   const [isPrintPreviewMode, setIsPrintPreviewMode] = useState(false);
+  
+  // 新增會員 Modal 狀態
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberId, setNewMemberId] = useState('');
   const [showAddMember, setShowAddMember] = useState(false);
+  
+  // 新增臨時會員狀態 (簡易版)
+  const [newTempMemberName, setNewTempMemberName] = useState('');
+  const [showAddTempMember, setShowAddTempMember] = useState(false);
+
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [rawFileContent, setRawFileContent] = useState('');
@@ -81,11 +91,11 @@ const App = () => {
 
   const fileInputRef = useRef(null);
   const nameInputRef = useRef(null);
+  const tempNameInputRef = useRef(null);
 
-  // --- 2. 初始化與監聽 Firebase 資料 ---
+  // --- 初始化與監聽 Firebase ---
   useEffect(() => {
     if (!db) {
-      console.log("No Firebase config, using local defaults.");
       initializeTables(true);
       setLoading(false);
       return;
@@ -95,9 +105,9 @@ const App = () => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setMembers(data.members || INITIAL_MEMBERS);
+        setTempMembers(data.tempMembers || []); // 載入臨時會員
         setTables(data.tables || []);
       } else {
-        console.log("Creating new DB entry...");
         initializeTables(false); 
       }
       setLoading(false);
@@ -110,12 +120,13 @@ const App = () => {
     return () => unsub();
   }, []);
 
-  const saveDataToFirebase = async (newMembers, newTables) => {
+  const saveDataToFirebase = async (newMembers, newTempMembers, newTables) => {
     if (!db) return;
     setSaving(true);
     try {
       await setDoc(doc(db, "seating_chart", DOC_ID), {
         members: newMembers,
+        tempMembers: newTempMembers, // 儲存臨時會員
         tables: newTables,
         lastUpdated: new Date()
       });
@@ -125,6 +136,14 @@ const App = () => {
       showNotification("儲存失敗，請檢查網路", "error");
       setSaving(false);
     }
+  };
+
+  // 通用更新函式
+  const updateData = (newMembers, newTempMembers, newTables) => {
+    setMembers(newMembers);
+    setTempMembers(newTempMembers);
+    setTables(newTables);
+    saveDataToFirebase(newMembers, newTempMembers, newTables);
   };
 
   const initializeTables = (isLocal = false) => {
@@ -144,13 +163,7 @@ const App = () => {
       seats: Array(SEATS_PER_TABLE).fill(null)
     });
     setTables(newTables);
-    if (!isLocal) saveDataToFirebase(members, newTables);
-  };
-
-  const updateData = (newMembers, newTables) => {
-    setMembers(newMembers);
-    setTables(newTables);
-    saveDataToFirebase(newMembers, newTables);
+    if (!isLocal) saveDataToFirebase(members, tempMembers, newTables);
   };
 
   const showNotification = (msg, type = 'success') => {
@@ -158,6 +171,86 @@ const App = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // --- 臨時會員邏輯 (修正版) ---
+  const handleAddTempMember = (e) => {
+    e.preventDefault();
+    if (!newTempMemberName.trim()) return;
+
+    // 自動產生編號 T-1, T-2...
+    let maxTempId = 0;
+    tempMembers.forEach(m => {
+      const num = parseInt(m.id.replace('T-', ''));
+      if (!isNaN(num) && num > maxTempId) maxTempId = num;
+    });
+    const newId = `T-${maxTempId + 1}`;
+
+    const newTempMember = {
+      id: newId,
+      name: newTempMemberName.trim(),
+      isTemp: true // 標記為臨時會員
+    };
+
+    const newTempMembersList = [...tempMembers, newTempMember];
+    updateData(members, newTempMembersList, tables);
+    
+    setNewTempMemberName('');
+    showNotification(`已新增臨時會員：${newTempMember.name} (${newId})`);
+    
+    setSelectedMember(newTempMember);
+  };
+
+  // 1. 觸發刪除臨時會員 (取代 window.confirm)
+  const promptDeleteTempMember = (tempMember) => {
+    setDeleteTempTarget(tempMember);
+  };
+
+  // 2. 執行刪除臨時會員
+  const confirmDeleteTempMember = () => {
+    if (!deleteTempTarget) return;
+    
+    const tempMember = deleteTempTarget;
+    const newTempList = tempMembers.filter(m => m.id !== tempMember.id);
+    
+    // 也要從座位上移除
+    const newTables = tables.map(table => ({
+        ...table,
+        seats: table.seats.map(seat => (seat && seat.id === tempMember.id ? null : seat))
+    }));
+
+    updateData(members, newTempList, newTables);
+    if (selectedMember && selectedMember.id === tempMember.id) setSelectedMember(null);
+    showNotification(`已刪除臨時會員 ${tempMember.name}`);
+    setDeleteTempTarget(null);
+  };
+
+  // --- 一般會員邏輯 ---
+  const handleAddMember = (e) => {
+    e.preventDefault();
+    if (!newMemberName.trim() || !newMemberId.trim()) return;
+    if (members.some(m => m.id === newMemberId.trim())) { showNotification(`編號 ${newMemberId} 已存在`, 'error'); return; }
+    const newMember = { id: newMemberId.trim(), name: newMemberName.trim(), isGuest: false };
+    const updatedMembers = [...members, newMember].sort((a, b) => parseInt(a.id) - parseInt(b.id));
+    updateData(updatedMembers, tempMembers, tables);
+    setShowAddMember(false);
+    setSelectedMember(newMember);
+    showNotification(`已新增：${newMember.name}`);
+  };
+
+  const confirmDeleteMember = () => {
+    if (!deleteMemberTarget) return;
+    const memberId = deleteMemberTarget.id;
+    const newMembers = members.filter(m => m.id !== memberId);
+    const newTables = tables.map(table => ({
+      ...table,
+      seats: table.seats.map(seat => (seat && seat.id === memberId ? null : seat))
+    }));
+    updateData(newMembers, tempMembers, newTables);
+    if (selectedMember && selectedMember.id === memberId) setSelectedMember(null);
+    showNotification(`已刪除會員：${deleteMemberTarget.name}`);
+    setDeleteMemberTarget(null);
+  };
+
+  // --- 共用邏輯 ---
   const handleSeatClick = (tableIndex, seatIndex) => {
     const currentOccupant = tables[tableIndex].seats[seatIndex];
     if (selectedMember && !currentOccupant) {
@@ -177,7 +270,7 @@ const App = () => {
         }
         return t;
       });
-      updateData(members, finalTables);
+      updateData(members, tempMembers, finalTables);
       setSelectedMember(null);
       showNotification(`${selectedMember.name} 入座`);
     } else if (currentOccupant) {
@@ -196,7 +289,7 @@ const App = () => {
       }
       return table;
     });
-    updateData(members, newTables);
+    updateData(members, tempMembers, newTables);
     showNotification(`已移除 ${memberName}`);
     setDeleteTarget(null);
   };
@@ -204,20 +297,10 @@ const App = () => {
   const performReset = () => {
     const newTables = [];
     for (let i = 1; i <= DEFAULT_REGULAR_TABLES; i++) {
-      newTables.push({
-        id: `table-${Date.now()}-${i}`,
-        name: `第 ${i} 桌`,
-        type: 'regular',
-        seats: Array(SEATS_PER_TABLE).fill(null)
-      });
+        newTables.push({id: `table-${Date.now()}-${i}`, name: `第 ${i} 桌`, type: 'regular', seats: Array(SEATS_PER_TABLE).fill(null)});
     }
-    newTables.push({
-      id: `table-${Date.now()}-veg`,
-      name: `素食桌`,
-      type: 'vegetarian',
-      seats: Array(SEATS_PER_TABLE).fill(null)
-    });
-    updateData(members, newTables);
+    newTables.push({id: `table-${Date.now()}-veg`, name: `素食桌`, type: 'vegetarian', seats: Array(SEATS_PER_TABLE).fill(null)});
+    updateData(members, tempMembers, newTables);
     setShowResetConfirm(false);
     showNotification('座位已重置');
   };
@@ -225,152 +308,102 @@ const App = () => {
   const handleQuickAddSubmit = (tableIndex, tableId) => {
     const inputVal = quickAddValues[tableId]?.trim();
     if (!inputVal) return;
-    const member = members.find(m => m.id === inputVal);
+
+    let member = members.find(m => m.id === inputVal);
+    if (!member) {
+        const upperVal = inputVal.toUpperCase();
+        member = tempMembers.find(m => m.id === upperVal);
+    }
+
     if (!member) { showNotification(`找不到編號 ${inputVal}`, 'error'); return; }
+    
     const targetTable = tables[tableIndex];
     const emptySeatIndex = targetTable.seats.findIndex(s => s === null);
     if (emptySeatIndex === -1) { showNotification(`客滿了`, 'error'); return; }
     const isAlreadySeated = tables.some(t => t.seats.some(s => s && s.id === member.id));
     if (isAlreadySeated) { if (!window.confirm(`${member.name} 已經在其他座位了，確定要換嗎？`)) return; }
-    const tablesAfterRemoval = tables.map(t => ({
-      ...t,
-      seats: t.seats.map(s => (s && s.id === member.id) ? null : s)
-    }));
+    const tablesAfterRemoval = tables.map(t => ({ ...t, seats: t.seats.map(s => (s && s.id === member.id) ? null : s) }));
     const finalTables = tablesAfterRemoval.map((t, idx) => {
-      if (idx === tableIndex) {
-        const newSeats = [...t.seats];
-        newSeats[emptySeatIndex] = member;
-        return { ...t, seats: newSeats };
-      }
+      if (idx === tableIndex) { const newSeats = [...t.seats]; newSeats[emptySeatIndex] = member; return { ...t, seats: newSeats }; }
       return t;
     });
-    updateData(members, finalTables);
+    updateData(members, tempMembers, finalTables);
     setQuickAddValues(prev => ({ ...prev, [tableId]: '' }));
     showNotification(`${member.name} 已加入`);
   };
 
   const confirmImport = () => {
     if (parsedPreviewMembers.length === 0) return;
-    updateData(parsedPreviewMembers, tables);
+    updateData(parsedPreviewMembers, tempMembers, tables); // 保留現有臨時會員
     setShowImportModal(false);
     showNotification(`匯入成功`);
   };
 
-  const handleAddMember = (e) => {
-    e.preventDefault();
-    if (!newMemberName.trim() || !newMemberId.trim()) return;
-    if (members.some(m => m.id === newMemberId.trim())) { showNotification(`編號 ${newMemberId} 已存在`, 'error'); return; }
-    const newMember = { id: newMemberId.trim(), name: newMemberName.trim(), isGuest: false };
-    const updatedMembers = [...members, newMember].sort((a, b) => parseInt(a.id) - parseInt(b.id));
-    updateData(updatedMembers, tables);
-    setShowAddMember(false);
-    setSelectedMember(newMember);
-    showNotification(`已新增：${newMember.name}`);
-  };
-
-  const addTable = () => {
-    const newTables = [...tables, {
-      id: `table-${Date.now()}`,
-      name: `加開桌 ${tables.length + 1}`,
-      type: 'regular',
-      seats: Array(SEATS_PER_TABLE).fill(null)
-    }];
-    updateData(members, newTables);
-    showNotification('已加開一桌');
-  };
-
+  // --- 其他輔助 ---
+  const promptDeleteMember = (member) => setDeleteMemberTarget(member);
   const handleQuickAddChange = (tableId, value) => setQuickAddValues(prev => ({ ...prev, [tableId]: value }));
   const promptDelete = (tableIndex, seatIndex, memberName) => setDeleteTarget({ tableIndex, seatIndex, memberName });
   const togglePrintPreview = () => setIsPrintPreviewMode(true);
   const executePrint = () => window.print();
   const closePrintPreview = () => setIsPrintPreviewMode(false);
   const resetSeats = () => setShowResetConfirm(true);
-  const onFileChange = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    setImportFile(file);
-    readFile(file, 'utf-8');
-    setShowImportModal(true);
-    event.target.value = '';
-  };
-  const readFile = (file, encoding) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target.result;
-      setRawFileContent(text);
-      const parsed = parseContentLogic(text);
-      setParsedPreviewMembers(parsed);
-      setImportEncoding(encoding);
-    };
-    reader.readAsText(file, encoding);
-  };
-  const parseContentLogic = (text) => {
-    try {
-      const lines = text.split(/\r\n|\n|\r/);
-      const tempMembers = [];
-      const seenIds = new Set();
-      const startLine = (lines[0] && (lines[0].includes('編號') || lines[0].includes('姓名'))) ? 1 : 0;
-      for (let i = startLine; i < lines.length; i++) {
-        const row = lines[i].trim();
-        if (!row) continue;
-        let cols = row.split(/[,，\t\s]+/).map(c => c.trim()).filter(c => c);
-        for (let j = 0; j < cols.length; j++) {
-          const possibleId = cols[j];
-          if (possibleId && !isNaN(parseInt(possibleId)) && cols[j+1]) {
-             const id = possibleId;
-             const name = cols[j+1];
-             if (!seenIds.has(id)) {
-               tempMembers.push({ id, name, isGuest: false });
-               seenIds.add(id);
-               j++;
-             }
-          }
-        }
-      }
-      return tempMembers.sort((a, b) => parseInt(a.id) - parseInt(b.id));
-    } catch (e) { return []; }
-  };
-  const fallbackCopyTextToClipboard = (text) => {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try { document.execCommand('copy'); showNotification('已複製'); } catch (err) { showNotification('複製失敗', 'error'); }
-    document.body.removeChild(textArea);
-  };
-  const exportList = () => {
-    let text = "長青會聚餐座位表\n\n";
-    tables.forEach(table => {
-      if (table.seats.some(s => s !== null)) {
-        text += `【${table.name}】${table.type === 'vegetarian' ? '(素食)' : ''}\n`;
-        table.seats.forEach((seat, idx) => { text += `${idx + 1}. ${seat ? seat.name : '(空位)'}\n`; });
-        text += "\n";
-      }
-    });
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => showNotification('已複製')).catch(() => fallbackCopyTextToClipboard(text));
-    } else { fallbackCopyTextToClipboard(text); }
+  const addTable = () => {
+    const newTables = [...tables, { id: `table-${Date.now()}`, name: `加開桌 ${tables.length + 1}`, type: 'regular', seats: Array(SEATS_PER_TABLE).fill(null) }];
+    updateData(members, tempMembers, newTables);
+    showNotification('已加開一桌');
   };
   const initiateAddMember = () => {
-    let maxId = 0;
-    members.forEach(m => { const num = parseInt(m.id); if (!isNaN(num) && num > maxId) maxId = num; });
+    let maxId = 0; members.forEach(m => { const num = parseInt(m.id); if (!isNaN(num) && num > maxId) maxId = num; });
     setNewMemberId((maxId + 1).toString()); setNewMemberName(''); setShowAddMember(true);
     setTimeout(() => nameInputRef.current?.focus(), 100);
   };
+  const onFileChange = (e) => { const file = e.target.files[0]; if (!file) return; setImportFile(file); readFile(file, 'utf-8'); setShowImportModal(true); e.target.value = ''; };
+  const readFile = (file, enc) => { const reader = new FileReader(); reader.onload = (e) => { setRawFileContent(e.target.result); setParsedPreviewMembers(parseContentLogic(e.target.result)); setImportEncoding(enc); }; reader.readAsText(file, enc); };
+  const parseContentLogic = (text) => {
+      try {
+          const lines = text.split(/\r\n|\n|\r/); const temp = []; const seen = new Set();
+          const start = (lines[0] && (lines[0].includes('編號') || lines[0].includes('姓名'))) ? 1 : 0;
+          for (let i = start; i < lines.length; i++) {
+              const row = lines[i].trim(); if (!row) continue;
+              let cols = row.split(/[,，\t\s]+/).map(c => c.trim()).filter(c => c);
+              for (let j = 0; j < cols.length; j++) {
+                  if (cols[j] && !isNaN(parseInt(cols[j])) && cols[j+1]) {
+                      const id = cols[j]; const name = cols[j+1];
+                      if (!seen.has(id)) { temp.push({ id, name, isGuest: false }); seen.add(id); j++; }
+                  }
+              }
+          }
+          return temp.sort((a, b) => parseInt(a.id) - parseInt(b.id));
+      } catch (e) { return []; }
+  };
+  const fallbackCopyTextToClipboard = (text) => { const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; document.body.appendChild(ta); ta.focus(); ta.select(); try { document.execCommand('copy'); showNotification('已複製'); } catch (e) { showNotification('複製失敗', 'error'); } document.body.removeChild(ta); };
+  const exportList = () => {
+      let text = "長青會聚餐座位表\n\n";
+      tables.forEach(t => {
+          if (t.seats.some(s => s !== null)) {
+              text += `【${t.name}】${t.type === 'vegetarian' ? '(素食)' : ''}\n`;
+              t.seats.forEach((s, i) => { text += `${i + 1}. ${s ? s.name : '(空位)'}\n`; });
+              text += "\n";
+          }
+      });
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => showNotification('已複製')).catch(() => fallbackCopyTextToClipboard(text)); else fallbackCopyTextToClipboard(text);
+  };
+
   const seatedMemberIds = new Set();
   tables.forEach(table => { table.seats.forEach(seat => { if (seat) seatedMemberIds.add(seat.id); }); });
-  const filteredMembers = members.filter(m => m.name.includes(searchTerm) || m.id.toString().includes(searchTerm)).sort((a, b) => {
+  
+  const filteredMembers = members.filter(m => m.name.includes(searchTerm) || m.id.toString().includes(searchTerm))
+    .sort((a, b) => {
       if (searchTerm) { if (a.id === searchTerm) return -1; if (b.id === searchTerm) return 1; }
-      const idA = parseInt(a.id), idB = parseInt(b.id);
-      if (isNaN(idA)) return 1; if (isNaN(idB)) return -1;
-      return idA - idB;
-  });
+      return parseInt(a.id) - parseInt(b.id);
+    });
+    
+  const filteredTempMembers = tempMembers.filter(m => m.name.includes(searchTerm) || m.id.includes(searchTerm));
 
-  if (loading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-gray-500"><Loader2 className="animate-spin w-10 h-10 text-emerald-600"/><p>正在連線至雲端資料庫...</p><p className="text-sm text-gray-400">若卡住請檢查 Firebase 設定</p></div>;
+  if (loading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-gray-500"><Loader2 className="animate-spin w-10 h-10 text-emerald-600"/><p>載入中...</p></div>;
 
   if (isPrintPreviewMode) {
+    // ... (列印預覽 UI 保持不變)
     return (
       <div className="bg-gray-100 min-h-screen">
         <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
@@ -390,42 +423,25 @@ const App = () => {
             ) : (
               tables.filter(t => t.seats.some(s => s !== null)).map((table) => (
                 <div key={table.id} className="bg-white w-full h-[297mm] shadow-xl mb-8 print:shadow-none print:mb-0 print:break-after-page flex flex-col relative overflow-hidden box-border">
-                   {/* 折線提示 */}
                    <div className="absolute top-[33.3%] left-0 w-full border-t border-dashed border-gray-300 flex items-center justify-center"><div className="bg-white px-2 text-gray-400 text-xs flex items-center gap-1"><Scissors size={10}/> 山折線 (Top Fold)</div></div>
                    <div className="absolute top-[66.6%] left-0 w-full border-t border-dashed border-gray-300 flex items-center justify-center"><div className="bg-white px-2 text-gray-400 text-xs flex items-center gap-1"><Scissors size={10}/> 山折線 (Bottom Fold)</div></div>
-                   
-                   {/* 上方：桌號 (旋轉180度) */}
                    <div className="h-[33.3%] flex flex-col justify-center items-center p-8 bg-white">
                      <div className="transform rotate-180 flex flex-col items-center">
                        <h1 className="text-[6rem] font-black leading-none text-gray-900 mb-2">{table.name}</h1>
                        {table.type === 'vegetarian' && (<div className="flex items-center justify-center gap-2 px-6 py-2 bg-green-100 text-green-800 rounded-full border-4 border-green-500 print:bg-green-100 print:text-green-800 print:border-green-500" style={{WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact'}}><Leaf size={32} /><span className="text-3xl font-bold">素食桌</span></div>)}
                      </div>
                    </div>
-
-                   {/* 中間：賓客名單 (直式 + 特大字體 + 左至右排列) */}
                    <div className="h-[33.3%] flex flex-col p-4 bg-gray-50/30 print:bg-transparent">
                      <div className="text-center mb-2"><h2 className="text-xl font-bold text-gray-500 tracking-widest border-b-2 border-gray-300 inline-block px-8 pb-1">賓客名單</h2></div>
-                     {/* 容器使用 flex-row 確保 1 在左，10 在右 */}
                      <div className="flex-1 flex flex-row justify-between items-start px-4">
                        {table.seats.map((seat, idx) => (
                          <div key={idx} className="flex flex-col items-center h-full gap-2 w-[9%]">
-                           {/* 編號圓圈加大 */}
-                           <span className="text-xl font-bold text-gray-500 rounded-full border-2 border-gray-400 w-10 h-10 flex items-center justify-center mb-1 bg-white">
-                             {idx + 1}
-                           </span>
-                           {/* 名字直式書寫，特大字體 */}
-                           <div 
-                             className="flex-1 text-5xl font-black text-gray-900 tracking-[0.2em] py-2 leading-tight" 
-                             style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
-                           >
-                             {seat ? seat.name : ''}
-                           </div>
+                           <span className="text-xl font-bold text-gray-500 rounded-full border-2 border-gray-400 w-10 h-10 flex items-center justify-center mb-1 bg-white">{idx + 1}</span>
+                           <div className="flex-1 text-5xl font-black text-gray-900 tracking-[0.2em] py-2 leading-tight" style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{seat ? seat.name : ''}</div>
                          </div>
                        ))}
                      </div>
                    </div>
-
-                   {/* 下方：底座 */}
                    <div className="h-[33.3%] flex flex-col justify-end items-center p-8 text-gray-300"><div className="mb-8 text-center"><p className="text-sm tracking-widest">長青會聚餐</p><p className="text-xs mt-1">請沿虛線折疊即可站立</p></div></div>
                 </div>
               ))
@@ -448,6 +464,47 @@ const App = () => {
          }
       </div>
 
+      {/* --- 臨時會員刪除確認 Modal --- */}
+      {deleteTempTarget && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
+            <div className="flex flex-col items-center text-center">
+              <div className="bg-red-100 p-3 rounded-full mb-4"><UserMinus className="text-red-600 w-8 h-8" /></div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">刪除臨時會員？</h3>
+              <p className="text-gray-600 mb-6">
+                您確定要刪除 <span className="font-bold text-gray-900">{deleteTempTarget.name}</span> ({deleteTempTarget.id}) 嗎？
+                <br/><span className="text-xs text-red-500 font-bold mt-1 block">此動作將同時移除其座位。</span>
+              </p>
+              <div className="flex gap-3 w-full">
+                <button onClick={() => setDeleteTempTarget(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button>
+                <button onClick={confirmDeleteTempMember} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認刪除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- 一般會員刪除確認 Modal --- */}
+      {deleteMemberTarget && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
+            <div className="flex flex-col items-center text-center">
+              <div className="bg-red-100 p-3 rounded-full mb-4"><UserMinus className="text-red-600 w-8 h-8" /></div>
+              <h3 className="text-xl font-bold text-gray-800 mb-2">確定刪除會員？</h3>
+              <p className="text-gray-600 mb-6">
+                您確定要刪除 <span className="font-bold text-gray-900">{deleteMemberTarget.name}</span> ({deleteMemberTarget.id}) 嗎？
+                <br/><span className="text-xs text-red-500 font-bold mt-1 block">此動作無法復原，且會空出編號與座位。</span>
+              </p>
+              <div className="flex gap-3 w-full">
+                <button onClick={() => setDeleteMemberTarget(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button>
+                <button onClick={confirmDeleteMember} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認刪除</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* ... (其餘 deleteTarget, showResetConfirm, showImportModal 等 Modal 保持原樣) ... */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -455,15 +512,11 @@ const App = () => {
               <div className="bg-red-100 p-3 rounded-full mb-4"><AlertTriangle className="text-red-600 w-8 h-8" /></div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">確定移除？</h3>
               <p className="text-gray-600 mb-6">要將 <span className="font-bold text-gray-900">{deleteTarget.memberName}</span> 移出座位嗎？<br/><span className="text-xs text-gray-400">(之後可重新安排入座)</span></p>
-              <div className="flex gap-3 w-full">
-                <button onClick={() => setDeleteTarget(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button>
-                <button onClick={confirmDelete} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認移除</button>
-              </div>
+              <div className="flex gap-3 w-full"><button onClick={() => setDeleteTarget(null)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button><button onClick={confirmDelete} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認移除</button></div>
             </div>
           </div>
         </div>
       )}
-
       {showResetConfirm && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -471,49 +524,26 @@ const App = () => {
               <div className="bg-red-100 p-3 rounded-full mb-4"><RotateCcw className="text-red-600 w-8 h-8" /></div>
               <h3 className="text-xl font-bold text-gray-800 mb-2">重置所有座位？</h3>
               <p className="text-gray-600 mb-6">這將清空目前所有桌次的安排。<br/><span className="text-xs text-gray-400">(會員名單將保留)</span></p>
-              <div className="flex gap-3 w-full">
-                <button onClick={() => setShowResetConfirm(false)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button>
-                <button onClick={performReset} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認重置</button>
-              </div>
+              <div className="flex gap-3 w-full"><button onClick={() => setShowResetConfirm(false)} className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition">取消</button><button onClick={performReset} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium shadow-md transition">確認重置</button></div>
             </div>
           </div>
         </div>
       )}
-
       {showImportModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b flex justify-between items-center bg-emerald-600 text-white rounded-t-xl">
-              <h3 className="font-bold flex items-center gap-2"><FileText size={20}/> 匯入預覽</h3>
-              <button onClick={() => setShowImportModal(false)} className="hover:bg-emerald-700 p-1 rounded"><X size={20}/></button>
-            </div>
+            <div className="p-4 border-b flex justify-between items-center bg-emerald-600 text-white rounded-t-xl"><h3 className="font-bold flex items-center gap-2"><FileText size={20}/> 匯入預覽</h3><button onClick={() => setShowImportModal(false)} className="hover:bg-emerald-700 p-1 rounded"><X size={20}/></button></div>
             <div className="p-6 overflow-y-auto flex-1">
-              <div className="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100">
-                <p className="text-sm text-blue-800 font-bold mb-2 flex items-center gap-1"><AlertCircle size={14}/> 亂碼請切換編碼：</p>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={importEncoding === 'utf-8'} onChange={() => readFile(importFile, 'utf-8')} /><span className="text-sm">UTF-8</span></label>
-                  <label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={importEncoding === 'big5'} onChange={() => readFile(importFile, 'big5')} /><span className="text-sm">Big5</span></label>
-                </div>
-              </div>
-              <div className="mb-4">
-                <p className="text-xs text-gray-500 mb-1">原始內容：</p>
-                <pre className="bg-gray-100 p-3 rounded text-xs h-24 overflow-y-auto font-mono text-gray-600 border">{rawFileContent.slice(0, 300)}...</pre>
-              </div>
-              <div>
-                <p className="font-bold text-gray-700 mb-2">預覽 ({parsedPreviewMembers.length} 人)：</p>
-                <div className="bg-emerald-50 border border-emerald-200 rounded p-2 max-h-40 overflow-y-auto grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {parsedPreviewMembers.slice(0, 30).map(m => <div key={m.id} className="text-xs bg-white px-2 py-1 rounded border border-emerald-100 flex gap-2"><span className="font-bold text-emerald-600 w-6">{m.id}</span><span>{m.name}</span></div>)}
-                </div>
-              </div>
+              <div className="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100"><p className="text-sm text-blue-800 font-bold mb-2 flex items-center gap-1"><AlertCircle size={14}/> 亂碼請切換編碼：</p><div className="flex gap-4"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={importEncoding === 'utf-8'} onChange={() => readFile(importFile, 'utf-8')} /><span className="text-sm">UTF-8</span></label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={importEncoding === 'big5'} onChange={() => readFile(importFile, 'big5')} /><span className="text-sm">Big5</span></label></div></div>
+              <div className="mb-4"><p className="text-xs text-gray-500 mb-1">原始內容：</p><pre className="bg-gray-100 p-3 rounded text-xs h-24 overflow-y-auto font-mono text-gray-600 border">{rawFileContent.slice(0, 300)}...</pre></div>
+              <div><p className="font-bold text-gray-700 mb-2">預覽 ({parsedPreviewMembers.length} 人)：</p><div className="bg-emerald-50 border border-emerald-200 rounded p-2 max-h-40 overflow-y-auto grid grid-cols-2 md:grid-cols-3 gap-2">{parsedPreviewMembers.slice(0, 30).map(m => <div key={m.id} className="text-xs bg-white px-2 py-1 rounded border border-emerald-100 flex gap-2"><span className="font-bold text-emerald-600 w-6">{m.id}</span><span>{m.name}</span></div>)}</div></div>
             </div>
-            <div className="p-4 border-t bg-gray-50 rounded-b-xl flex justify-end gap-3">
-              <button onClick={() => setShowImportModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded">取消</button>
-              <button onClick={confirmImport} disabled={parsedPreviewMembers.length === 0} className={`px-6 py-2 rounded font-bold text-white flex items-center gap-2 ${parsedPreviewMembers.length > 0 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400'}`}><Check size={18} /> 匯入</button>
-            </div>
+            <div className="p-4 border-t bg-gray-50 rounded-b-xl flex justify-end gap-3"><button onClick={() => setShowImportModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded">取消</button><button onClick={confirmImport} disabled={parsedPreviewMembers.length === 0} className={`px-6 py-2 rounded font-bold text-white flex items-center gap-2 ${parsedPreviewMembers.length > 0 ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-400'}`}><Check size={18} /> 匯入</button></div>
           </div>
         </div>
       )}
 
+      {/* 頂部導航 */}
       <header className="bg-emerald-600 text-white p-3 shadow-md flex flex-wrap gap-2 justify-between items-center z-10 print:hidden">
         <div className="flex items-center gap-2">
           <Users className="h-6 w-6" />
@@ -533,45 +563,99 @@ const App = () => {
       )}
 
       <main className="flex flex-1 overflow-hidden print:hidden">
+        {/* 左側名單 */}
         <aside className="w-1/3 md:w-1/4 bg-white border-r flex flex-col shadow-lg z-0">
-          <div className="p-4 border-b bg-gray-50">
-            <h2 className="font-bold text-gray-700 mb-3 flex justify-between items-center">
-              會員名單 <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{seatedMemberIds.size} / {members.length} 入座</span>
+          <div className="p-4 border-b bg-gray-50 flex flex-col gap-2">
+            <h2 className="font-bold text-gray-700 flex justify-between items-center">
+              會員名單 <span className="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">{seatedMemberIds.size} / {members.length + tempMembers.length} 入座</span>
             </h2>
-            <div className="relative mb-3 group">
+            <div className="relative group">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               <input type="text" placeholder="搜尋..." className="w-full pl-9 pr-8 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600 bg-gray-100 rounded-full p-0.5"><X size={14}/></button>}
             </div>
-            {!showAddMember ? (
-              <button onClick={initiateAddMember} className="w-full flex items-center justify-center gap-2 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition text-sm font-medium"><UserPlus size={16} /> 新增會員</button>
-            ) : (
-              <form onSubmit={handleAddMember} className="bg-emerald-50 p-2 rounded-lg border border-emerald-200 shadow-sm animate-fade-in">
-                <div className="flex justify-between items-center mb-2 text-xs text-emerald-800 font-bold"><span>新增會員</span><button type="button" onClick={() => setShowAddMember(false)} className="text-gray-400 hover:text-gray-600"><X size={14}/></button></div>
+            
+            {/* 按鈕區 */}
+            <div className="flex gap-2">
+               <button onClick={initiateAddMember} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded text-sm font-medium transition ${showAddMember ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'}`}><UserPlus size={14} /> 新增</button>
+               <button onClick={() => setShowAddTempMember(!showAddTempMember)} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded text-sm font-medium transition ${showAddTempMember ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`}><User size={14} /> 臨時</button>
+            </div>
+
+            {/* 新增正式會員表單 */}
+            {showAddMember && (
+              <form onSubmit={handleAddMember} className="bg-emerald-50 p-2 rounded-lg border border-emerald-200 shadow-sm animate-fade-in mt-1">
                 <div className="flex gap-2 mb-2">
-                  <input type="text" className="w-1/3 px-2 py-1.5 border rounded text-sm outline-none" value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)} placeholder="#" />
-                  <input ref={nameInputRef} type="text" className="w-2/3 px-2 py-1.5 border rounded text-sm outline-none" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="姓名" />
+                  <input type="text" className="w-1/3 px-2 py-1.5 border rounded text-xs outline-none" value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)} placeholder="#" />
+                  <input ref={nameInputRef} type="text" className="w-2/3 px-2 py-1.5 border rounded text-xs outline-none" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} placeholder="姓名" />
                 </div>
-                <button type="submit" className="w-full bg-emerald-600 text-white py-1.5 rounded text-sm hover:bg-emerald-700 flex items-center justify-center gap-1"><Check size={14} /> 確認</button>
+                <button type="submit" className="w-full bg-emerald-600 text-white py-1 rounded text-xs hover:bg-emerald-700 flex items-center justify-center gap-1"><Check size={12} /> 確認</button>
+              </form>
+            )}
+
+            {/* 新增臨時會員表單 */}
+            {showAddTempMember && (
+              <form onSubmit={handleAddTempMember} className="bg-orange-50 p-2 rounded-lg border border-orange-200 shadow-sm animate-fade-in mt-1">
+                <div className="flex gap-2 mb-2">
+                  <input ref={tempNameInputRef} autoFocus type="text" className="w-full px-2 py-1.5 border rounded text-xs outline-none focus:border-orange-500" value={newTempMemberName} onChange={(e) => setNewTempMemberName(e.target.value)} placeholder="臨時會員姓名" />
+                </div>
+                <button type="submit" className="w-full bg-orange-600 text-white py-1 rounded text-xs hover:bg-orange-700 flex items-center justify-center gap-1"><Check size={12} /> 加入臨時名單</button>
               </form>
             )}
           </div>
+
           <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
-            {filteredMembers.map((member) => {
-              const isSeated = seatedMemberIds.has(member.id);
-              const isSelected = selectedMember?.id === member.id;
-              return (
-                <div key={member.id} onClick={() => setSelectedMember(isSelected ? null : member)} className={`flex items-center justify-between p-2 mb-1.5 rounded-lg cursor-pointer transition select-none ${isSeated ? 'bg-gray-50 text-gray-400 opacity-60' : isSelected ? 'bg-emerald-600 text-white shadow-md transform scale-[1.02]' : 'bg-white border hover:border-emerald-300 hover:shadow-sm'}`}>
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isSeated ? 'bg-gray-200' : isSelected ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>{isNaN(member.id) ? '賓' : member.id}</div>
-                    <span className="font-medium truncate">{member.name}</span>
-                  </div>
-                  {isSeated && <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded">已入座</span>}
-                  {!isSeated && member.isGuest && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded">賓客</span>}
-                </div>
-              );
-            })}
-            {filteredMembers.length === 0 && <div className="flex flex-col items-center justify-center text-gray-400 py-8 text-sm gap-2"><FileSpreadsheet className="h-8 w-8 opacity-20" /><p>無符合資料</p></div>}
+            {/* 臨時會員區塊 */}
+            {(tempMembers.length > 0 || searchTerm) && (filteredTempMembers.length > 0) && (
+              <div className="mb-4">
+                <h3 className="text-xs font-bold text-orange-600 mb-1 px-1 flex items-center gap-1">
+                  <User size={10}/> 臨時會員 ({filteredTempMembers.length})
+                </h3>
+                {filteredTempMembers.map((member) => {
+                  const isSeated = seatedMemberIds.has(member.id);
+                  const isSelected = selectedMember?.id === member.id;
+                  return (
+                    <div key={member.id} className={`group relative flex items-center justify-between p-2 mb-1.5 rounded-lg cursor-pointer transition select-none ${isSeated ? 'bg-gray-50 text-gray-400 opacity-60' : isSelected ? 'bg-orange-500 text-white shadow-md transform scale-[1.02]' : 'bg-white border border-orange-200 hover:shadow-sm'}`}>
+                      <div className="flex-1 flex items-center gap-3 overflow-hidden" onClick={() => setSelectedMember(isSelected ? null : member)}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${isSeated ? 'bg-gray-200' : isSelected ? 'bg-white text-orange-600' : 'bg-orange-100 text-orange-600'}`}>{member.id}</div>
+                        <span className="font-medium truncate">{member.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {isSeated && <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded">已入座</span>}
+                        {/* 刪除臨時會員按鈕 - 觸發 promptDeleteTempMember */}
+                        <button onClick={(e) => { e.stopPropagation(); promptDeleteTempMember(member); }} className="hidden group-hover:flex items-center justify-center w-6 h-6 bg-red-100 text-red-500 rounded hover:bg-red-500 hover:text-white transition shadow-sm ml-1" title="刪除"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* 正式會員區塊 */}
+            {filteredMembers.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold text-emerald-600 mb-1 px-1 flex items-center gap-1">
+                  <Users size={10}/> 正式會員 ({filteredMembers.length})
+                </h3>
+                {filteredMembers.map((member) => {
+                  const isSeated = seatedMemberIds.has(member.id);
+                  const isSelected = selectedMember?.id === member.id;
+                  return (
+                    <div key={member.id} className={`group relative flex items-center justify-between p-2 mb-1.5 rounded-lg cursor-pointer transition select-none ${isSeated ? 'bg-gray-50 text-gray-400 opacity-60' : isSelected ? 'bg-emerald-600 text-white shadow-md transform scale-[1.02]' : 'bg-white border hover:border-emerald-300 hover:shadow-sm'}`}>
+                      <div className="flex-1 flex items-center gap-3 overflow-hidden" onClick={() => setSelectedMember(isSelected ? null : member)}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isSeated ? 'bg-gray-200' : isSelected ? 'bg-emerald-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>{member.id}</div>
+                        <span className="font-medium truncate">{member.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {isSeated && <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded">已入座</span>}
+                        <button onClick={(e) => { e.stopPropagation(); promptDeleteMember(member); }} className="hidden group-hover:flex items-center justify-center w-6 h-6 bg-red-100 text-red-500 rounded hover:bg-red-500 hover:text-white transition shadow-sm ml-1" title="刪除"><Trash2 size={12} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {filteredMembers.length === 0 && filteredTempMembers.length === 0 && <div className="flex flex-col items-center justify-center text-gray-400 py-8 text-sm gap-2"><FileSpreadsheet className="h-8 w-8 opacity-20" /><p>無符合資料</p></div>}
           </div>
         </aside>
 
@@ -579,8 +663,8 @@ const App = () => {
           <div className="max-w-6xl mx-auto">
             <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r shadow-sm flex flex-wrap gap-4 justify-between items-center sticky top-0 z-10 backdrop-blur-sm bg-blue-50/90">
               <div>
-                <p className="font-bold text-blue-700">{selectedMember ? `已選擇：${selectedMember.name}` : "操作模式"}</p>
-                <p className="text-sm text-blue-600">{selectedMember ? `請點擊下方任一空位入座。` : "1. 從左側點選人員入座，或使用下方的快速輸入編號。"}</p>
+                <p className="font-bold text-blue-700">{selectedMember ? `已選擇：${selectedMember.name} ${selectedMember.isTemp ? '(臨時)' : ''}` : "操作模式"}</p>
+                <p className="text-sm text-blue-600">{selectedMember ? `請點擊下方任一空位入座。` : "1. 點選人員入座，或使用下方快速輸入編號。"}</p>
               </div>
               <button onClick={addTable} className="flex items-center gap-2 bg-white text-blue-600 px-4 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 font-medium shadow-sm transition"><PlusCircle size={18} /> 加開一桌</button>
             </div>
@@ -607,7 +691,7 @@ const App = () => {
 
                     <div className="p-2 border-t bg-gray-50 flex gap-2">
                       <div className="relative flex-1">
-                        <input type="text" placeholder="編號" className="w-full pl-7 pr-2 py-1.5 text-sm border rounded focus:border-emerald-500 outline-none" value={quickAddValues[table.id] || ''} onChange={(e) => handleQuickAddChange(table.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddSubmit(tIndex, table.id); }} />
+                        <input type="text" placeholder="編號 (如 T-1)" className="w-full pl-7 pr-2 py-1.5 text-sm border rounded focus:border-emerald-500 outline-none" value={quickAddValues[table.id] || ''} onChange={(e) => handleQuickAddChange(table.id, e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAddSubmit(tIndex, table.id); }} />
                         <UserCheck className="absolute left-2 top-2 text-gray-400" size={14} />
                       </div>
                       <button onClick={() => handleQuickAddSubmit(tIndex, table.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-xs font-bold transition">加入</button>
