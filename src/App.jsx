@@ -499,12 +499,28 @@ const App = () => {
                    <div className="h-[33.3%] flex flex-col p-4 bg-gray-50/30 print:bg-transparent">
                      <div className="text-center mb-2"><h2 className="text-xl font-bold text-gray-500 tracking-widest border-b-2 border-gray-300 inline-block px-8 pb-1">賓客名單</h2></div>
                      <div className="flex-1 flex flex-row justify-between items-start px-4">
-                       {table.seats.map((seat, idx) => (
-                         <div key={idx} className="flex flex-col items-center h-full gap-2 w-[9%]">
-                           <span className="text-xl font-bold text-gray-500 rounded-full border-2 border-gray-400 w-10 h-10 flex items-center justify-center mb-1 bg-white">{idx + 1}</span>
-                           <div className="flex-1 text-5xl font-black text-gray-900 tracking-[0.2em] py-2 leading-tight" style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}>{seat ? seat.name : ''}</div>
-                         </div>
-                       ))}
+                       {table.seats.map((seat, idx) => {
+                         // --- 字體大小邏輯：列印預覽 ---
+                         // 預設 (3字內): text-5xl
+                         // 4字: text-4xl
+                         // 5字以上: text-3xl
+                         const nameLen = seat ? seat.name.length : 0;
+                         let fontClass = "text-5xl";
+                         if (nameLen === 4) fontClass = "text-4xl";
+                         if (nameLen >= 5) fontClass = "text-3xl";
+
+                         return (
+                           <div key={idx} className="flex flex-col items-center h-full gap-2 w-[9%]">
+                             <span className="text-xl font-bold text-gray-500 rounded-full border-2 border-gray-400 w-10 h-10 flex items-center justify-center mb-1 bg-white">{idx + 1}</span>
+                             <div 
+                               className={`flex-1 ${fontClass} font-black text-gray-900 tracking-[0.2em] py-2 leading-tight`} 
+                               style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                             >
+                               {seat ? seat.name : ''}
+                             </div>
+                           </div>
+                         );
+                       })}
                      </div>
                    </div>
                    <div className="h-[33.3%] flex flex-col justify-end items-center p-8 text-gray-300"><div className="mb-8 text-center"><p className="text-sm tracking-widest">長青會聚餐</p><p className="text-xs mt-1">請沿虛線折疊即可站立</p></div></div>
@@ -783,13 +799,20 @@ const App = () => {
                     </div>
                     
                     <div className="p-3 grid grid-cols-2 gap-2 flex-1">
-                      {table.seats.map((seat, sIndex) => (
-                        <div key={sIndex} className={`relative h-12 rounded-md border transition-all text-sm ${seat ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium' : selectedMember ? 'bg-white border-dashed border-emerald-400 hover:bg-emerald-50' : isVeg ? 'bg-lime-50/50 border-dashed border-lime-300 hover:border-lime-400' : 'bg-gray-50 border-dashed border-gray-200 hover:border-gray-300'}`}>
-                          <div className="absolute inset-0 z-0 cursor-pointer flex items-center justify-center" onClick={() => handleSeatClick(tIndex, sIndex)}>{!seat && <span className="text-xs text-gray-300 select-none">{sIndex + 1}</span>}</div>
-                          {seat && (<div className="absolute inset-0 z-10 pointer-events-none flex items-center justify-center px-6"><span className="truncate w-full text-center">{seat.name}</span></div>)}
-                          {seat && (<button type="button" className="absolute right-1 top-1/2 -translate-y-1/2 bg-white/90 text-red-500 rounded-full p-1 hover:bg-red-500 hover:text-white transition shadow-sm z-50 cursor-pointer" onClick={(e) => { e.stopPropagation(); promptDelete(tIndex, sIndex, seat.name); }} title="移除"><Trash2 size={12} /></button>)}
-                        </div>
-                      ))}
+                      {table.seats.map((seat, sIndex) => {
+                        // --- 字體大小邏輯：主畫面 ---
+                        // 3字以上: text-xs, 左右padding減少
+                        // 3字內: text-sm (預設)
+                        const isLongName = seat && seat.name.length > 3;
+
+                        return (
+                          <div key={sIndex} className={`relative h-12 rounded-md border transition-all text-sm ${seat ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium' : selectedMember ? 'bg-white border-dashed border-emerald-400 hover:bg-emerald-50' : isVeg ? 'bg-lime-50/50 border-dashed border-lime-300 hover:border-lime-400' : 'bg-gray-50 border-dashed border-gray-200 hover:border-gray-300'}`}>
+                            <div className="absolute inset-0 z-0 cursor-pointer flex items-center justify-center" onClick={() => handleSeatClick(tIndex, sIndex)}>{!seat && <span className="text-xs text-gray-300 select-none">{sIndex + 1}</span>}</div>
+                            {seat && (<div className={`absolute inset-0 z-10 pointer-events-none flex items-center justify-center ${isLongName ? 'px-1' : 'px-2'}`}><span className={`truncate w-full text-center ${isLongName ? 'text-xs' : ''}`}>{seat.name}</span></div>)}
+                            {seat && (<button type="button" className="absolute right-1 top-1/2 -translate-y-1/2 bg-white/90 text-red-500 rounded-full p-1 hover:bg-red-500 hover:text-white transition shadow-sm z-50 cursor-pointer" onClick={(e) => { e.stopPropagation(); promptDelete(tIndex, sIndex, seat.name); }} title="移除"><Trash2 size={12} /></button>)}
+                          </div>
+                        );
+                      })}
                     </div>
 
                     <div className="p-2 border-t bg-gray-50 flex gap-2">
