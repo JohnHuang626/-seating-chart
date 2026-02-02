@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2, UserMinus, User } from 'lucide-react';
+import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2, UserMinus, User, ClipboardList } from 'lucide-react';
 
-// --- 1. 請在此處填入您的 Firebase 設定 (從 Firebase Console 複製) ---
+// --- 1. Firebase 設定 ---
 const firebaseConfig = {
   apiKey: "AIzaSyBsSr16Th9m72p8FNP__qKIWyFbW8OMvMs",
   authDomain: "seating-chart-32df9.firebaseapp.com",
@@ -30,22 +30,18 @@ const INITIAL_MEMBERS = [
   { id: '1', name: '尤春花' }, { id: '2', name: '王秀玉' }, { id: '3', name: '王春月' }, { id: '4', name: '王秋蘭' },
   { id: '5', name: '王振榕' }, { id: '6', name: '王崑山' }, { id: '7', name: '王欽長' }, { id: '8', name: '王鳳卿' },
   { id: '9', name: '王瓊華' }, { id: '10', name: '江岱穎' }, { id: '11', name: '何方桂枝' },
-  
   // 第二列
   { id: '41', name: '林中男' }, { id: '42', name: '林玉滿' }, { id: '43', name: '林秀蘭' }, { id: '44', name: '林建谷' },
   { id: '45', name: '林美玉' }, { id: '46', name: '林英治' }, { id: '47', name: '林泰堭' }, { id: '48', name: '林偉伶' },
   { id: '49', name: '林陳美惠' }, { id: '50', name: '林榮春' }, { id: '51', name: '林蔡碧梅' },
-
   // 第三列
   { id: '81', name: '莊秋澤' }, { id: '82', name: '莊淑珠' }, { id: '83', name: '許文憲' }, { id: '84', name: '許明晃' },
   { id: '85', name: '許麗美' }, { id: '86', name: '許麗美' }, { id: '87', name: '郭源' }, { id: '88', name: '郭福從' },
   { id: '89', name: '陳月英' }, { id: '90', name: '陳月霞' }, { id: '91', name: '陳世通' },
-
   // 第四列
   { id: '121', name: '黃國安' }, { id: '122', name: '黃淑亮' }, { id: '123', name: '黃淑貞' }, { id: '124', name: '黃淑萍' },
   { id: '125', name: '黃復朝' }, { id: '126', name: '黃筆忠' }, { id: '127', name: '黃董事長盈彰' }, { id: '128', name: '黃碧如' },
   { id: '129', name: '黃蔡敏' }, { id: '130', name: '黃蔡清鏡' }, { id: '131', name: '黃鄭月華' },
-
   // 第五列
   { id: '161', name: '盧明徳' }, { id: '162', name: '盧廖靜子' }, { id: '163', name: '蕭玉花' }, { id: '164', name: '蕭宜珊' },
   { id: '165', name: '蕭國鐘' }, { id: '166', name: '蕭筱華' }, { id: '167', name: '蕭賴金葉' }, { id: '168', name: '賴威良' },
@@ -58,7 +54,7 @@ const SEATS_PER_TABLE = 10;
 const App = () => {
   // 狀態
   const [members, setMembers] = useState(INITIAL_MEMBERS);
-  const [tempMembers, setTempMembers] = useState([]); // 新增：臨時會員狀態
+  const [tempMembers, setTempMembers] = useState([]); // 臨時會員狀態
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -68,10 +64,12 @@ const App = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [notification, setNotification] = useState(null);
   const [quickAddValues, setQuickAddValues] = useState({});
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [deleteMemberTarget, setDeleteMemberTarget] = useState(null);
-  const [deleteTempTarget, setDeleteTempTarget] = useState(null); // 新增：臨時會員刪除確認
+  
+  // 各種 Modal 狀態
+  const [deleteTarget, setDeleteTarget] = useState(null); // 桌上移除確認
+  const [showResetConfirm, setShowResetConfirm] = useState(false); // 重置確認
+  const [deleteMemberTarget, setDeleteMemberTarget] = useState(null); // 一般會員刪除確認
+  const [deleteTempTarget, setDeleteTempTarget] = useState(null); // 臨時會員刪除確認
   const [isPrintPreviewMode, setIsPrintPreviewMode] = useState(false);
   
   // 新增會員 Modal 狀態
@@ -79,15 +77,20 @@ const App = () => {
   const [newMemberId, setNewMemberId] = useState('');
   const [showAddMember, setShowAddMember] = useState(false);
   
-  // 新增臨時會員狀態 (簡易版)
+  // 新增臨時會員狀態
   const [newTempMemberName, setNewTempMemberName] = useState('');
   const [showAddTempMember, setShowAddTempMember] = useState(false);
 
+  // 匯入狀態
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [rawFileContent, setRawFileContent] = useState('');
   const [parsedPreviewMembers, setParsedPreviewMembers] = useState([]);
   const [importEncoding, setImportEncoding] = useState('utf-8');
+
+  // 貼上名單狀態
+  const [showPasteModal, setShowPasteModal] = useState(false);
+  const [pasteText, setPasteText] = useState('');
 
   const fileInputRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -126,7 +129,7 @@ const App = () => {
     try {
       await setDoc(doc(db, "seating_chart", DOC_ID), {
         members: newMembers,
-        tempMembers: newTempMembers, // 儲存臨時會員
+        tempMembers: newTempMembers,
         tables: newTables,
         lastUpdated: new Date()
       });
@@ -138,7 +141,6 @@ const App = () => {
     }
   };
 
-  // 通用更新函式
   const updateData = (newMembers, newTempMembers, newTables) => {
     setMembers(newMembers);
     setTempMembers(newTempMembers);
@@ -171,52 +173,118 @@ const App = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // --- 臨時會員邏輯 (修正版) ---
+  // --- 貼上名單邏輯 ---
+  const handlePasteProcess = () => {
+    if (!pasteText.trim()) return;
+
+    const sections = pasteText.split('【');
+    const newTablesData = {}; // Map<TableName, Array<MemberName>>
+
+    // 1. 解析文字
+    sections.forEach(section => {
+      if (!section.includes('】')) return;
+      const parts = section.split('】');
+      const tableName = parts[0].trim();
+      const body = parts[1];
+
+      // 解析每一行： "1. 王小明" 或 "王小明"
+      const names = body.split('\n')
+        .map(line => line.trim())
+        .filter(line => line)
+        .map(line => {
+           // 去除前面的數字編號 (例如 "1. ", "10. ")
+           return line.replace(/^\d+[\.\、\s]+/, '').trim();
+        })
+        .filter(name => name && name !== '(空位)'); // 過濾掉空位標記
+
+      if (names.length > 0) {
+        newTablesData[tableName] = names;
+      }
+    });
+
+    if (Object.keys(newTablesData).length === 0) {
+      showNotification('無法辨識內容，請確認格式', 'error');
+      return;
+    }
+
+    // 2. 準備更新資料
+    let updatedTempMembers = [...tempMembers];
+    let nextTempId = 0;
+    // 計算目前最大臨時 ID
+    updatedTempMembers.forEach(m => {
+        const num = parseInt(m.id.replace('T-', ''));
+        if (!isNaN(num) && num > nextTempId) nextTempId = num;
+    });
+
+    // 3. 更新桌次
+    const updatedTables = tables.map(table => {
+      if (newTablesData[table.name]) {
+        // 找到對應的桌子，準備填入
+        const namesToFill = newTablesData[table.name];
+        const newSeats = Array(SEATS_PER_TABLE).fill(null);
+
+        namesToFill.forEach((name, index) => {
+          if (index >= SEATS_PER_TABLE) return;
+
+          // 優先找正式會員
+          let member = members.find(m => m.name === name);
+          
+          // 再找現有臨時會員
+          if (!member) {
+            member = updatedTempMembers.find(m => m.name === name);
+          }
+
+          // 都找不到 -> 建立新的臨時會員
+          if (!member) {
+            nextTempId++;
+            const newId = `T-${nextTempId}`;
+            member = { id: newId, name: name, isTemp: true };
+            updatedTempMembers.push(member);
+          }
+
+          newSeats[index] = member;
+        });
+
+        return { ...table, seats: newSeats };
+      }
+      return table; // 如果貼上的資料沒提到這桌，就保持原樣
+    });
+
+    updateData(members, updatedTempMembers, updatedTables);
+    setShowPasteModal(false);
+    setPasteText('');
+    showNotification(`已成功排入 ${Object.keys(newTablesData).length} 桌`);
+  };
+
+
+  // --- 臨時會員新增與刪除邏輯 ---
   const handleAddTempMember = (e) => {
     e.preventDefault();
     if (!newTempMemberName.trim()) return;
-
-    // 自動產生編號 T-1, T-2...
     let maxTempId = 0;
     tempMembers.forEach(m => {
       const num = parseInt(m.id.replace('T-', ''));
       if (!isNaN(num) && num > maxTempId) maxTempId = num;
     });
     const newId = `T-${maxTempId + 1}`;
-
-    const newTempMember = {
-      id: newId,
-      name: newTempMemberName.trim(),
-      isTemp: true // 標記為臨時會員
-    };
-
+    const newTempMember = { id: newId, name: newTempMemberName.trim(), isTemp: true };
     const newTempMembersList = [...tempMembers, newTempMember];
     updateData(members, newTempMembersList, tables);
-    
     setNewTempMemberName('');
     showNotification(`已新增臨時會員：${newTempMember.name} (${newId})`);
-    
     setSelectedMember(newTempMember);
   };
 
-  // 1. 觸發刪除臨時會員 (取代 window.confirm)
-  const promptDeleteTempMember = (tempMember) => {
-    setDeleteTempTarget(tempMember);
-  };
+  const promptDeleteTempMember = (tempMember) => setDeleteTempTarget(tempMember);
 
-  // 2. 執行刪除臨時會員
   const confirmDeleteTempMember = () => {
     if (!deleteTempTarget) return;
-    
     const tempMember = deleteTempTarget;
     const newTempList = tempMembers.filter(m => m.id !== tempMember.id);
-    
-    // 也要從座位上移除
     const newTables = tables.map(table => ({
         ...table,
         seats: table.seats.map(seat => (seat && seat.id === tempMember.id ? null : seat))
     }));
-
     updateData(members, newTempList, newTables);
     if (selectedMember && selectedMember.id === tempMember.id) setSelectedMember(null);
     showNotification(`已刪除臨時會員 ${tempMember.name}`);
@@ -250,7 +318,7 @@ const App = () => {
     setDeleteMemberTarget(null);
   };
 
-  // --- 共用邏輯 ---
+  // --- 座位邏輯 ---
   const handleSeatClick = (tableIndex, seatIndex) => {
     const currentOccupant = tables[tableIndex].seats[seatIndex];
     if (selectedMember && !currentOccupant) {
@@ -308,13 +376,11 @@ const App = () => {
   const handleQuickAddSubmit = (tableIndex, tableId) => {
     const inputVal = quickAddValues[tableId]?.trim();
     if (!inputVal) return;
-
     let member = members.find(m => m.id === inputVal);
     if (!member) {
         const upperVal = inputVal.toUpperCase();
         member = tempMembers.find(m => m.id === upperVal);
     }
-
     if (!member) { showNotification(`找不到編號 ${inputVal}`, 'error'); return; }
     
     const targetTable = tables[tableIndex];
@@ -334,12 +400,12 @@ const App = () => {
 
   const confirmImport = () => {
     if (parsedPreviewMembers.length === 0) return;
-    updateData(parsedPreviewMembers, tempMembers, tables); // 保留現有臨時會員
+    updateData(parsedPreviewMembers, tempMembers, tables);
     setShowImportModal(false);
     showNotification(`匯入成功`);
   };
 
-  // --- 其他輔助 ---
+  // --- 輔助函式 ---
   const promptDeleteMember = (member) => setDeleteMemberTarget(member);
   const handleQuickAddChange = (tableId, value) => setQuickAddValues(prev => ({ ...prev, [tableId]: value }));
   const promptDelete = (tableIndex, seatIndex, memberName) => setDeleteTarget({ tableIndex, seatIndex, memberName });
@@ -403,7 +469,6 @@ const App = () => {
   if (loading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-gray-500"><Loader2 className="animate-spin w-10 h-10 text-emerald-600"/><p>載入中...</p></div>;
 
   if (isPrintPreviewMode) {
-    // ... (列印預覽 UI 保持不變)
     return (
       <div className="bg-gray-100 min-h-screen">
         <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
@@ -464,7 +529,38 @@ const App = () => {
          }
       </div>
 
-      {/* --- 臨時會員刪除確認 Modal --- */}
+      {/* 貼上名單 Modal */}
+      {showPasteModal && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b flex justify-between items-center bg-indigo-600 text-white rounded-t-xl">
+              <h3 className="font-bold flex items-center gap-2"><ClipboardList size={20}/> 貼上名單 (智慧排桌)</h3>
+              <button onClick={() => setShowPasteModal(false)} className="hover:bg-indigo-700 p-1 rounded"><X size={20}/></button>
+            </div>
+            <div className="p-6 flex-1 flex flex-col gap-4">
+              <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded border">
+                <span className="font-bold text-gray-800">使用說明：</span><br/>
+                請將您複製的文字直接貼在下方。系統會自動辨識「桌名」與「姓名」，並將其安排至對應座位。
+                <br/><span className="text-xs text-gray-400 mt-1 block">* 若名字不存在，系統將自動建立為臨時會員。</span>
+              </p>
+              <textarea 
+                className="w-full h-64 p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-sm bg-gray-50"
+                placeholder={`範例格式：\n\n【第 1 桌】\n1. 王小明\n2. 李大華\n\n【第 2 桌】\n...`}
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+              />
+            </div>
+            <div className="p-4 border-t bg-gray-50 rounded-b-xl flex justify-end gap-3">
+              <button onClick={() => setShowPasteModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded">取消</button>
+              <button onClick={handlePasteProcess} disabled={!pasteText.trim()} className={`px-6 py-2 rounded font-bold text-white flex items-center gap-2 ${pasteText.trim() ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400'}`}>
+                <Check size={18} /> 確認排入
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 臨時會員刪除確認 Modal */}
       {deleteTempTarget && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -484,7 +580,7 @@ const App = () => {
         </div>
       )}
 
-      {/* --- 一般會員刪除確認 Modal --- */}
+      {/* 一般會員刪除確認 Modal */}
       {deleteMemberTarget && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -504,7 +600,7 @@ const App = () => {
         </div>
       )}
       
-      {/* ... (其餘 deleteTarget, showResetConfirm, showImportModal 等 Modal 保持原樣) ... */}
+      {/* 座位移除確認 Modal */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -517,6 +613,8 @@ const App = () => {
           </div>
         </div>
       )}
+
+      {/* 重置確認 Modal */}
       {showResetConfirm && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 animate-fade-in print:hidden">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm border-2 border-red-100">
@@ -529,6 +627,8 @@ const App = () => {
           </div>
         </div>
       )}
+
+      {/* 匯入 Modal */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
@@ -551,6 +651,9 @@ const App = () => {
           <h1 className="text-lg font-bold md:hidden">排桌系統</h1>
         </div>
         <div className="flex gap-2 items-center">
+           {/* 新增貼上按鈕 */}
+           <button onClick={() => setShowPasteModal(true)} className="flex items-center gap-1 bg-indigo-500 hover:bg-indigo-400 px-3 py-1.5 rounded text-sm border border-indigo-400 font-medium"><ClipboardList size={16} /> 貼上</button>
+           
            <button onClick={() => fileInputRef.current.click()} className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded text-sm border border-emerald-400 font-medium"><Upload size={16} /> 匯入</button>
            <button onClick={togglePrintPreview} className="flex items-center gap-1 bg-white text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm font-bold shadow-sm"><Printer size={16} /> 列印桌卡</button>
            <button onClick={exportList} className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5 rounded text-sm border border-emerald-600"><Download size={16} /> <span className="hidden sm:inline">複製</span></button>
@@ -621,7 +724,7 @@ const App = () => {
                       </div>
                       <div className="flex items-center gap-1">
                         {isSeated && <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded">已入座</span>}
-                        {/* 刪除臨時會員按鈕 - 觸發 promptDeleteTempMember */}
+                        {/* 刪除按鈕 - 觸發 promptDeleteTempMember */}
                         <button onClick={(e) => { e.stopPropagation(); promptDeleteTempMember(member); }} className="hidden group-hover:flex items-center justify-center w-6 h-6 bg-red-100 text-red-500 rounded hover:bg-red-500 hover:text-white transition shadow-sm ml-1" title="刪除"><Trash2 size={12} /></button>
                       </div>
                     </div>
