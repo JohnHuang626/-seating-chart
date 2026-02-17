@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2, UserMinus, User, ClipboardList } from 'lucide-react';
+import { Search, UserPlus, Users, Trash2, PlusCircle, RotateCcw, Download, Upload, FileSpreadsheet, Leaf, X, Check, FileText, Settings, AlertCircle, Printer, Scissors, UserCheck, AlertTriangle, ChevronLeft, Cloud, Loader2, UserMinus, User, ClipboardList, List } from 'lucide-react';
 
 // --- 1. Firebase 設定 ---
 const firebaseConfig = {
@@ -70,7 +70,9 @@ const App = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false); // 重置確認
   const [deleteMemberTarget, setDeleteMemberTarget] = useState(null); // 一般會員刪除確認
   const [deleteTempTarget, setDeleteTempTarget] = useState(null); // 臨時會員刪除確認
-  const [isPrintPreviewMode, setIsPrintPreviewMode] = useState(false);
+  
+  // 列印模式狀態： 'none' | 'cards' (桌卡) | 'list' (總表)
+  const [printMode, setPrintMode] = useState('none');
   
   // 新增會員 Modal 狀態
   const [newMemberName, setNewMemberName] = useState('');
@@ -409,9 +411,10 @@ const App = () => {
   const promptDeleteMember = (member) => setDeleteMemberTarget(member);
   const handleQuickAddChange = (tableId, value) => setQuickAddValues(prev => ({ ...prev, [tableId]: value }));
   const promptDelete = (tableIndex, seatIndex, memberName) => setDeleteTarget({ tableIndex, seatIndex, memberName });
-  const togglePrintPreview = () => setIsPrintPreviewMode(true);
+  const toggleCardPrint = () => setPrintMode('cards');
+  const toggleListPrint = () => setPrintMode('list');
   const executePrint = () => window.print();
-  const closePrintPreview = () => setIsPrintPreviewMode(false);
+  const closePrintPreview = () => setPrintMode('none');
   const resetSeats = () => setShowResetConfirm(true);
   const addTable = () => {
     const newTables = [...tables, { id: `table-${Date.now()}`, name: `加開桌 ${tables.length + 1}`, type: 'regular', seats: Array(SEATS_PER_TABLE).fill(null) }];
@@ -468,7 +471,10 @@ const App = () => {
 
   if (loading) return <div className="h-screen flex flex-col items-center justify-center gap-4 text-gray-500"><Loader2 className="animate-spin w-10 h-10 text-emerald-600"/><p>載入中...</p></div>;
 
-  if (isPrintPreviewMode) {
+  // ---------------------------------------------
+  // VIEW 1: 桌卡列印 (三角立牌)
+  // ---------------------------------------------
+  if (printMode === 'cards') {
     return (
       <div className="bg-gray-100 min-h-screen">
         <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
@@ -500,10 +506,6 @@ const App = () => {
                      <div className="text-center mb-2"><h2 className="text-xl font-bold text-gray-500 tracking-widest border-b-2 border-gray-300 inline-block px-8 pb-1">賓客名單</h2></div>
                      <div className="flex-1 flex flex-row justify-between items-start px-4">
                        {table.seats.map((seat, idx) => {
-                         // --- 字體大小邏輯：列印預覽 ---
-                         // 預設 (3字內): text-5xl
-                         // 4字: text-4xl
-                         // 5字以上: text-3xl
                          const nameLen = seat ? seat.name.length : 0;
                          let fontClass = "text-5xl";
                          if (nameLen === 4) fontClass = "text-4xl";
@@ -527,6 +529,54 @@ const App = () => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------
+  // VIEW 2: 總表列印 (公告用)
+  // ---------------------------------------------
+  if (printMode === 'list') {
+    return (
+      <div className="bg-gray-100 min-h-screen">
+        <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
+          <div className="flex items-center gap-4">
+            <button onClick={closePrintPreview} className="flex items-center gap-2 text-gray-300 hover:text-white transition"><ChevronLeft size={20} /> 返回編輯</button>
+            <span className="font-bold text-lg">列印總表 (公告用)</span>
+          </div>
+          <div className="flex gap-3">
+             <button onClick={executePrint} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-md transition"><Printer size={20} /> 立即列印 (Ctrl+P)</button>
+          </div>
+        </div>
+        <div className="pt-20 pb-10 px-4 print:p-0 print:m-0">
+          <div className="bg-white p-8 shadow-lg max-w-5xl mx-auto print:shadow-none print:w-full print:p-4 print:max-w-none">
+            <h1 className="text-3xl font-black text-center mb-6 pb-4 border-b-2 border-gray-800">長青會聚餐座位總表</h1>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-3 gap-4">
+               {tables.filter(t => t.seats.some(s => s !== null)).map((table) => {
+                 const isVeg = table.type === 'vegetarian';
+                 return (
+                   <div key={table.id} className="border-2 border-gray-800 break-inside-avoid page-break-avoid rounded-lg overflow-hidden flex flex-col">
+                     <div className={`p-2 text-center border-b-2 border-gray-800 font-black text-lg ${isVeg ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                        {table.name} {isVeg && '(素食)'}
+                     </div>
+                     <div className="p-2 flex-1 bg-white">
+                        <ul className="text-sm space-y-1">
+                          {table.seats.map((seat, idx) => (
+                            <li key={idx} className="flex border-b border-gray-200 last:border-0 py-1">
+                               <span className="w-6 text-gray-500 font-bold text-center inline-block">{idx + 1}.</span>
+                               <span className={`font-bold ml-2 ${seat ? 'text-gray-900' : 'text-gray-300'}`}>
+                                 {seat ? seat.name : '(空位)'}
+                               </span>
+                            </li>
+                          ))}
+                        </ul>
+                     </div>
+                   </div>
+                 )
+               })}
+            </div>
           </div>
         </div>
       </div>
@@ -667,11 +717,16 @@ const App = () => {
           <h1 className="text-lg font-bold md:hidden">排桌系統</h1>
         </div>
         <div className="flex gap-2 items-center">
-           {/* 新增貼上按鈕 */}
            <button onClick={() => setShowPasteModal(true)} className="flex items-center gap-1 bg-indigo-500 hover:bg-indigo-400 px-3 py-1.5 rounded text-sm border border-indigo-400 font-medium"><ClipboardList size={16} /> 貼上</button>
            
            <button onClick={() => fileInputRef.current.click()} className="flex items-center gap-1 bg-emerald-500 hover:bg-emerald-400 px-3 py-1.5 rounded text-sm border border-emerald-400 font-medium"><Upload size={16} /> 匯入</button>
-           <button onClick={togglePrintPreview} className="flex items-center gap-1 bg-white text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm font-bold shadow-sm"><Printer size={16} /> 列印桌卡</button>
+           
+           {/* 列印桌卡 */}
+           <button onClick={toggleCardPrint} className="flex items-center gap-1 bg-white text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 rounded text-sm font-bold shadow-sm"><Printer size={16} /> 列印桌卡</button>
+           
+           {/* 新增：列印總表 */}
+           <button onClick={toggleListPrint} className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-sm border border-blue-400 font-medium"><List size={16} /> 列印總表</button>
+
            <button onClick={exportList} className="flex items-center gap-1 bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5 rounded text-sm border border-emerald-600"><Download size={16} /> <span className="hidden sm:inline">複製</span></button>
            <button onClick={resetSeats} className="flex items-center gap-1 bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded text-sm"><RotateCcw size={16} /></button>
         </div>
