@@ -536,7 +536,7 @@ const App = () => {
   }
 
   // ---------------------------------------------
-  // VIEW 2: 總表列印 (公告用) - 優化為 B4 橫向單張
+  // VIEW 2: 總表列印 (公告用) - 優化為 B4 橫向單張 + 雙欄位 + 大字體
   // ---------------------------------------------
   if (printMode === 'list') {
     return (
@@ -567,27 +567,41 @@ const App = () => {
         <div className="pt-20 pb-10 px-4 print:p-0 print:m-0">
           <div className="bg-white p-8 shadow-lg max-w-5xl mx-auto print:shadow-none print:w-full print:p-0 print:max-w-none">
             <h1 className="text-3xl font-black text-center mb-6 pb-4 border-b-2 border-gray-800 print:text-2xl print:mb-2 print:pb-2">長青會聚餐座位總表</h1>
-            {/* 列印時改為 5 欄 (print:grid-cols-5) 且縮小間距 (print:gap-2) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-5 gap-4 print:gap-2">
+            {/* 改為 4 欄以容納雙欄位名單的寬度 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-4 gap-4 print:gap-3">
                {tables.filter(t => t.seats.some(s => s !== null)).map((table) => {
                  const isVeg = table.type === 'vegetarian';
                  return (
                    <div key={table.id} className="border-2 border-gray-800 break-inside-avoid page-break-avoid rounded-lg overflow-hidden flex flex-col print:border">
-                     <div className={`p-2 text-center border-b-2 border-gray-800 font-black text-lg ${isVeg ? 'bg-gray-200' : 'bg-gray-100'} print:text-sm print:p-1 print:border-b`}>
+                     <div className={`p-2 text-center border-b-2 border-gray-800 font-black text-lg ${isVeg ? 'bg-gray-200' : 'bg-gray-100'} print:text-base print:p-1 print:border-b print:font-bold`}>
                         {table.name} {isVeg && '(素食)'}
                      </div>
                      <div className="p-2 flex-1 bg-white print:p-1">
-                        {/* 列印時字體縮小 (print:text-[10px]) */}
-                        <ul className="text-sm space-y-1 print:text-[10px] print:leading-tight">
-                          {table.seats.map((seat, idx) => (
-                            <li key={idx} className="flex border-b border-gray-200 last:border-0 py-1 print:py-0.5">
-                               <span className="w-6 text-gray-500 font-bold text-center inline-block print:w-4">{idx + 1}.</span>
-                               <span className={`font-bold ml-2 ${seat ? 'text-gray-900' : 'text-gray-300'} truncate`}>
-                                 {seat ? seat.name : '(空位)'}
-                               </span>
-                            </li>
-                          ))}
-                        </ul>
+                        <div className="flex">
+                          {/* 左欄：1-5 號 */}
+                          <ul className="w-1/2 pr-1 space-y-1 border-r border-gray-200 print:border-gray-300">
+                            {table.seats.slice(0, 5).map((seat, idx) => (
+                              <li key={idx} className="flex border-b border-gray-100 last:border-0 py-1 print:py-0.5 items-center">
+                                 <span className="w-4 text-gray-500 font-bold text-center inline-block text-xs print:text-[10px]">{idx + 1}.</span>
+                                 {/* 字體加大：print:text-xs (約12px) 甚至可以試試 print:text-sm */}
+                                 <span className={`font-bold ml-1 ${seat ? 'text-gray-900' : 'text-gray-300'} truncate text-sm print:text-xs leading-tight`}>
+                                   {seat ? seat.name : ''}
+                                 </span>
+                              </li>
+                            ))}
+                          </ul>
+                          {/* 右欄：6-10 號 */}
+                          <ul className="w-1/2 pl-1 space-y-1">
+                            {table.seats.slice(5, 10).map((seat, idx) => (
+                              <li key={idx + 5} className="flex border-b border-gray-100 last:border-0 py-1 print:py-0.5 items-center">
+                                 <span className="w-4 text-gray-500 font-bold text-center inline-block text-xs print:text-[10px]">{idx + 6}.</span>
+                                 <span className={`font-bold ml-1 ${seat ? 'text-gray-900' : 'text-gray-300'} truncate text-sm print:text-xs leading-tight`}>
+                                   {seat ? seat.name : ''}
+                                 </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                      </div>
                    </div>
                  )
