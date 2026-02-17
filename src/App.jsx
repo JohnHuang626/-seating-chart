@@ -536,7 +536,7 @@ const App = () => {
   }
 
   // ---------------------------------------------
-  // VIEW 2: 總表列印 (公告用)
+  // VIEW 2: 總表列印 (公告用) - 優化為 B4 橫向單張
   // ---------------------------------------------
   if (printMode === 'list') {
     return (
@@ -544,29 +544,45 @@ const App = () => {
         <div className="fixed top-0 left-0 right-0 bg-gray-800 text-white p-4 z-50 flex justify-between items-center shadow-lg print:hidden">
           <div className="flex items-center gap-4">
             <button onClick={closePrintPreview} className="flex items-center gap-2 text-gray-300 hover:text-white transition"><ChevronLeft size={20} /> 返回編輯</button>
-            <span className="font-bold text-lg">列印總表 (公告用)</span>
+            <span className="font-bold text-lg">列印總表 (公告用 - B4 橫向最佳)</span>
           </div>
           <div className="flex gap-3">
              <button onClick={executePrint} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 shadow-md transition"><Printer size={20} /> 立即列印 (Ctrl+P)</button>
           </div>
         </div>
+        
+        {/* 加入列印專用樣式：設定 B4 橫向 */}
+        <style>{`
+          @media print {
+            @page {
+              size: B4 landscape;
+              margin: 10mm;
+            }
+            body {
+              -webkit-print-color-adjust: exact;
+            }
+          }
+        `}</style>
+
         <div className="pt-20 pb-10 px-4 print:p-0 print:m-0">
-          <div className="bg-white p-8 shadow-lg max-w-5xl mx-auto print:shadow-none print:w-full print:p-4 print:max-w-none">
-            <h1 className="text-3xl font-black text-center mb-6 pb-4 border-b-2 border-gray-800">長青會聚餐座位總表</h1>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-3 gap-4">
+          <div className="bg-white p-8 shadow-lg max-w-5xl mx-auto print:shadow-none print:w-full print:p-0 print:max-w-none">
+            <h1 className="text-3xl font-black text-center mb-6 pb-4 border-b-2 border-gray-800 print:text-2xl print:mb-2 print:pb-2">長青會聚餐座位總表</h1>
+            {/* 列印時改為 5 欄 (print:grid-cols-5) 且縮小間距 (print:gap-2) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 print:grid-cols-5 gap-4 print:gap-2">
                {tables.filter(t => t.seats.some(s => s !== null)).map((table) => {
                  const isVeg = table.type === 'vegetarian';
                  return (
-                   <div key={table.id} className="border-2 border-gray-800 break-inside-avoid page-break-avoid rounded-lg overflow-hidden flex flex-col">
-                     <div className={`p-2 text-center border-b-2 border-gray-800 font-black text-lg ${isVeg ? 'bg-gray-200' : 'bg-gray-100'}`}>
+                   <div key={table.id} className="border-2 border-gray-800 break-inside-avoid page-break-avoid rounded-lg overflow-hidden flex flex-col print:border">
+                     <div className={`p-2 text-center border-b-2 border-gray-800 font-black text-lg ${isVeg ? 'bg-gray-200' : 'bg-gray-100'} print:text-sm print:p-1 print:border-b`}>
                         {table.name} {isVeg && '(素食)'}
                      </div>
-                     <div className="p-2 flex-1 bg-white">
-                        <ul className="text-sm space-y-1">
+                     <div className="p-2 flex-1 bg-white print:p-1">
+                        {/* 列印時字體縮小 (print:text-[10px]) */}
+                        <ul className="text-sm space-y-1 print:text-[10px] print:leading-tight">
                           {table.seats.map((seat, idx) => (
-                            <li key={idx} className="flex border-b border-gray-200 last:border-0 py-1">
-                               <span className="w-6 text-gray-500 font-bold text-center inline-block">{idx + 1}.</span>
-                               <span className={`font-bold ml-2 ${seat ? 'text-gray-900' : 'text-gray-300'}`}>
+                            <li key={idx} className="flex border-b border-gray-200 last:border-0 py-1 print:py-0.5">
+                               <span className="w-6 text-gray-500 font-bold text-center inline-block print:w-4">{idx + 1}.</span>
+                               <span className={`font-bold ml-2 ${seat ? 'text-gray-900' : 'text-gray-300'} truncate`}>
                                  {seat ? seat.name : '(空位)'}
                                </span>
                             </li>
